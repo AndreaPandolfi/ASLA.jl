@@ -1,0 +1,7 @@
+Case,Real_jac,Real_ichol,Real_ichol_memory,Real_size,Sim_jac,Sim_ichol,Sim_ichol_memory,Sim_size
+Random intercepts,35,17,15,4101,16,8,7,4101
+Nested effect,94,33,29,4115,23,13,12,4115
+Random slopes,149,29,29,5229,34,8,8,5229
+2 way interactions,122,30,24,89385,37,15,10,97838
+3 way interactions,126,31,24,159633,38,15,10,167956
+Everything,262,63,41,160775,60,17,13,169098
