@@ -7,6 +7,7 @@ using MixedModels, StatsModels, StatsBase
 using Tables
 using JLD2, FileIO
 using PrettyTables
+using LinearAlgebra
 
 
 path_to_folder = "paper\\real_data_example\\G&G\\";
@@ -60,13 +61,19 @@ function cg_results(df::DataFrame, f::FormulaTerm, n_iters::Int; burn_in::Int=1,
 
     converged_values = PGgibbs_GLMMs(df, f, burn_in, seed=10, converged_values=true)
 
-    β_cg, T_cg = PGgibbs_GLMMs(df, f, n_iters - burn_in, initial_values=converged_values, seed=seed, system_solver! =_cg!)
+    β_cg, T_cg, elapsed_cg = PGgibbs_GLMMs(df, f, n_iters - burn_in, initial_values=converged_values, seed=seed, system_solver! =_cg!, elapsed=true)
 
     if return_W2
-        β_exact, T_exact = PGgibbs_GLMMs(df, f, n_iters - burn_in, initial_values=converged_values, seed=seed)
+        function _chol!(x, Q, b)
+            F = cholesky(Symmetric(Q))
+            x .= F \ b
+        end
+        β_exact, T_exact, elapsed_chol = PGgibbs_GLMMs(df, f, n_iters - burn_in, initial_values=converged_values, seed=seed, system_solver! =_chol!, elapsed=true)
         return Dict(
             :accuracy => accuracy_cg,
             :iters => iters,
+            :elapsed_cg => elapsed_cg,
+            :elapsed_chol => elapsed_chol,
             :size => length(converged_values[:θ]),
             :W2_β => W2_sample_distance(β_cg, β_exact),
             :W2_T => W2_sample_distance(T_cg, T_exact)
@@ -76,6 +83,7 @@ function cg_results(df::DataFrame, f::FormulaTerm, n_iters::Int; burn_in::Int=1,
     return Dict(
         :accuracy => accuracy_cg,
         :iters => iters,
+        :elapsed_cg => elapsed_cg,
         :size => length(converged_values[:θ])
     )
 end;
@@ -111,8 +119,8 @@ iters = [];
 if false
     for N in [7000, 70000]
         df_sim, df_real = get_dataframes(df, N)
-        results_sim = DataFrame(iters = Float64[], size = Int[], max_W2_β = Float64[], max_W2_T = Float64[], avg_W2_β = Float64[], avg_W2_T = Float64[]);
-        results_real = DataFrame(iters = Float64[], size = Int[], max_W2_β = Float64[], max_W2_T = Float64[], avg_W2_β = Float64[], avg_W2_T = Float64[]);
+        results_sim = DataFrame(iters = Float64[], size = Int[], time_cg = Float64[], time_chol = Float64[], max_W2_β = Float64[], max_W2_T = Float64[], avg_W2_β = Float64[], avg_W2_T = Float64[]);
+        results_real = DataFrame(iters = Float64[], size = Int[], time_cg = Float64[], time_chol = Float64[], max_W2_β = Float64[], max_W2_T = Float64[], avg_W2_β = Float64[], avg_W2_T = Float64[]);
         outputs_sim = []; outputs_real = [];
 
         n_iters = 300; burn_in = 100;
@@ -122,12 +130,12 @@ if false
             global iters
             iters = []; out = cg_results(df_sim, f, n_iters; burn_in=burn_in, accuracy_cg=1e-8, return_W2=true)
             W2_T = vcat(vec.(out[:W2_T])...); W2_β = out[:W2_β];
-            push!(results_sim, (mean(out[:iters]), out[:size], maximum(W2_β), maximum(W2_T), mean(W2_β), mean(W2_T)))
+            push!(results_sim, (mean(out[:iters]), out[:size], mean(out[:elapsed_cg]), mean(out[:elapsed_chol]), maximum(W2_β), maximum(W2_T), mean(W2_β), mean(W2_T)))
             push!(outputs_sim, out)
 
             iters = []; out = cg_results(df_real, f, n_iters; burn_in=burn_in, accuracy_cg=1e-8, return_W2=true)
             W2_T = vcat(vec.(out[:W2_T])...); W2_β = out[:W2_β];
-            push!(results_real, (mean(out[:iters]), out[:size], maximum(W2_β), maximum(W2_T), mean(W2_β), mean(W2_T)))
+            push!(results_real, (mean(out[:iters]), out[:size], mean(out[:elapsed_cg]), mean(out[:elapsed_chol]), maximum(W2_β), maximum(W2_T), mean(W2_β), mean(W2_T)))
             push!(outputs_real, out)
 
         end
@@ -161,3 +169,22 @@ pretty_df = DataFrame(
 # end
 
 CSV.write(path_to_folder*"..//summary_GG.csv", pretty_df)
+
+
+time_cg_sim = ones(2*length(results_sim.time_cg));      time_cg_sim[1:2:end] .= results_sim.time_cg;    time_cg_sim[2:2:end] .= results_sim_large.time_cg;            
+time_chol_sim = ones(2*length(results_sim.time_cg));       time_chol_sim[1:2:end] .= results_sim.time_chol;      time_chol_sim[2:2:end] .= results_sim_large.time_chol;     
+time_cg_real = ones(2*length(results_real.time_cg));    time_cg_real[1:2:end] .= results_real.time_cg;  time_cg_real[2:2:end] .= results_real_large.time_cg;            
+time_chol_real = ones(2*length(results_real.time_cg));      time_chol_real[1:2:end] .= results_real.time_chol;    time_chol_real[2:2:end] .= results_real_large.time_chol;   
+cases = ["Random intercepts", "Nested effect", "Random slopes", "2 way interactions", "3 way interactions", "Everything"]
+
+using Printf
+round1(x) = @sprintf("%.2e", x)
+round2(x) = @sprintf("%.2f", x)
+
+time_df = DataFrame(
+    Case = vcat([[case, ""] for case in cases]...),
+    Real = ["$(time_chol/time_cg|>round2) ($(time_cg|>round1))" for (time_cg, time_chol) in zip(time_cg_real, time_chol_real)],
+    Simulated = ["$(time_chol/time_cg|>round2) ($(time_cg|>round1))" for (time_cg, time_chol) in zip(time_cg_sim, time_chol_sim)]
+)
+
+CSV.write(path_to_folder*"..//time_GG.csv", time_df)
