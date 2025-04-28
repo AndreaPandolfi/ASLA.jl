@@ -15,7 +15,7 @@ function PGgibbs_GLMMs(df::DataFrame, f::FormulaTerm, n_iter::Integer;
     system_solver!::Function = function (x, Q, b) x.=Q\b; return nothing end, 
     seed=nothing, burn_in::Integer=0,
     debug=false, converged_values=false, 
-    elapsed=false # if true, returns a Vector of elapsed times of system_solver!
+    runtime_info=false # if true, returns the list of ouputs of system_solver!, which should contain information about the time taken to solve the system of equations
     )
     @assert burn_in < n_iter
 
@@ -63,7 +63,7 @@ function PGgibbs_GLMMs(df::DataFrame, f::FormulaTerm, n_iter::Integer;
     β_hist = typeof(θ)[]; push!(β_hist, θ[end-G_0 + 1:end])
     T_hist = typeof(T)[];   push!(T_hist, T)
 
-    elapsed && (elapsed_hist = Float64[])
+    runtime_info && (info_hist = Dict[])
 
     debug && (full_hist = Dict(
         :Ω => typeof(Ω)[],
@@ -79,14 +79,11 @@ function PGgibbs_GLMMs(df::DataFrame, f::FormulaTerm, n_iter::Integer;
         
         Q = prior_prec + V_T*spdiagm(Ω)*V
         b = V_T*y_centered + V_T * (sqrt.(Ω) .* rand(Normal(0, 1), N)) + prior_prec_sqrt*rand(Normal(0,1), p) 
-        time = @elapsed system_solver!(θ, Q, b)
-        # F = cholesky(Symmetric(Q), NoPivot())
-        # w = F.L\(V_T*y_centered)
-        # θ = F.U\(w + rand(Normal(0,1), p))
+        info =  system_solver!(θ, Q, b)
+        # if `runtime_info`==True, `info` is supposted to be a dictionary with information about the runtime of system_solver!
+        # else, `info` is just a placeholder
         
-        # debug && println(θ[1:3])
-        
-        elapsed && push!(elapsed_hist, time)
+        runtime_info && push!(info_hist, info)
         push!(β_hist, θ[end-G_0 + 1:end])
 
         # update Ω
@@ -118,6 +115,6 @@ function PGgibbs_GLMMs(df::DataFrame, f::FormulaTerm, n_iter::Integer;
     end
     debug && return full_hist, T_hist
     converged_values && return Dict(:θ => deepcopy(θ), :T  => deepcopy(T), :Ω => deepcopy(Ω))
-    elapsed && return β_hist[burn_in+1:end], T_hist[burn_in+1:end], elapsed_hist[burn_in+1:end]
+    runtime_info && return β_hist[burn_in+1:end], T_hist[burn_in+1:end], info_hist[burn_in+1:end]
     return β_hist[burn_in+1:end], T_hist[burn_in+1:end]
 end
