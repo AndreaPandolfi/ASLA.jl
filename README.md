@@ -2,7 +2,7 @@
 
 Bayesian Gibbs sampler for GLMMs with Polya Gamma augmentation. 
 
-The function `PGgibbs_GLMMs(df::DataFrame, f::FormulaTerm, n_iter::Integer; kwargs...)` returns MCMC posterior samples.
+The function `PGgibbs_GLMMs(df::DataFrame, f::FormulaTerm, n_iter::Integer; kwargs...)` returns MCMC posterior samples. The construction of the design matrix from the FormulaTerm is done with the [MixedModels.jl](https://github.com/JuliaStats/MixedModels.jl) package.
 
 The algorithms in this package are presented in:
 
