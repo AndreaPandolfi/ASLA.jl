@@ -127,7 +127,7 @@ function results(df::DataFrame, f::FormulaTerm, n_iters::Int; burn_in::Int=1, re
         )
     end
 
-    converged_values = PGgibbs_GLMMs(df, f, burn_in, seed=10, converged_values=true)
+    converged_values = PGgibbs_GLMMs(df, f, burn_in, seed=10, converged_values=true, system_solver! = (x, Q, b) -> cg!(x,Q,b))
 
     β_cg, T_cg, info_hist = PGgibbs_GLMMs(df, f, n_iters - burn_in, initial_values=converged_values, seed=seed, system_solver! =_cg!, runtime_info=true)
 
@@ -195,7 +195,6 @@ formula_list = [
     @formula(y ~ 1 + (1 | s) + (1+service| d) + (1|dept) + (1 | lectage) + (1 | s&d) + (1 | s&lectage) + (1 | d&lectage) + (1 | d&s&lectage))
 ];
 
-iters = [];
 if false
     for N in [7000, 70000]
         df_sim, df_real = get_dataframes(df, N)
@@ -228,7 +227,7 @@ end
 results_sim, _, results_real, _ = load(joinpath(path_to_folder, "results.jld2"), "results_sim", "outputs_sim", "results_real", "outputs_real");
 results_sim_large, results_real_large = load(joinpath(path_to_folder, "results_largeN.jld2"), "results_sim", "results_real");
 
-
+### CG ITERS
 iters_sim = ones(2*length(results_sim.iters));      iters_sim[1:2:end] .= results_sim.iters;    iters_sim[2:2:end] .= results_sim_large.iters;      iters_sim = round.(Int64, iters_sim);
 size_sim = ones(2*length(results_sim.iters));       size_sim[1:2:end] .= results_sim.size;      size_sim[2:2:end] .= results_sim_large.size;        size_sim = round.(Int64, size_sim);
 iters_real = ones(2*length(results_real.iters));    iters_real[1:2:end] .= results_real.iters;  iters_real[2:2:end] .= results_real_large.iters;    iters_real = round.(Int64, iters_real);
@@ -244,33 +243,31 @@ pretty_df = DataFrame(
 
 CSV.write(joinpath(path_to_folder, "..", "summary_InstEval.csv"), pretty_df)
 
+### RUNNING TIMES
 time_cg_sim = ones(2*length(results_sim.time_cg));      time_cg_sim[1:2:end] .= results_sim.time_cg;    time_cg_sim[2:2:end] .= results_sim_large.time_cg;            
 time_chol_sim = ones(2*length(results_sim.time_cg));       time_chol_sim[1:2:end] .= results_sim.time_chol;      time_chol_sim[2:2:end] .= results_sim_large.time_chol;     
 time_cg_real = ones(2*length(results_real.time_cg));    time_cg_real[1:2:end] .= results_real.time_cg;  time_cg_real[2:2:end] .= results_real_large.time_cg;            
 time_chol_real = ones(2*length(results_real.time_cg));      time_chol_real[1:2:end] .= results_real.time_chol;    time_chol_real[2:2:end] .= results_real_large.time_chol;   
 cases = ["Random intercepts", "Nested effect", "Random slopes", "Nested random slopes", "2 way interactions", "3 way interactions", "Everything"]
 
-using Printf
-round1(x) = @sprintf("%.2e", x)
-round2(x) = @sprintf("%.2f", x)
-
 time_df = DataFrame(
     Case = vcat([[case, ""] for case in cases]...),
-    Real = ["$(time_chol/time_cg|>round2) ($(time_cg|>round1))" for (time_cg, time_chol) in zip(time_cg_real, time_chol_real)],
-    Simulated = ["$(time_chol/time_cg|>round2) ($(time_cg|>round1))" for (time_cg, time_chol) in zip(time_cg_sim, time_chol_sim)]
+    Real = [(time_chol/time_cg, time_cg) for (time_cg, time_chol) in zip(time_cg_real, time_chol_real)],
+    Simulated = [(time_chol/time_cg, time_cg) for (time_cg, time_chol) in zip(time_cg_sim, time_chol_sim)]
 )
 
-CSV.write(joinpath(path_to_folder, "..", "time_InstEval.csv"), time_df)
+JLD2.@save joinpath(path_to_folder, "..", "time_IE.jld2") time_df
+# CSV.write(joinpath(path_to_folder, "..", "time_InstEval.csv"), time_df)
 
-
+### FLOPS
 cost_cg_sim = ones(2*length(results_sim.cost_cg));      cost_cg_sim[1:2:end] .= results_sim.cost_cg;    cost_cg_sim[2:2:end] .= results_sim_large.cost_cg;            
 cost_chol_sim = ones(2*length(results_sim.cost_cg));       cost_chol_sim[1:2:end] .= results_sim.cost_chol;      cost_chol_sim[2:2:end] .= results_sim_large.cost_chol;     
 cost_cg_real = ones(2*length(results_real.cost_cg));    cost_cg_real[1:2:end] .= results_real.cost_cg;  cost_cg_real[2:2:end] .= results_real_large.cost_cg;            
 cost_chol_real = ones(2*length(results_real.cost_cg));      cost_chol_real[1:2:end] .= results_real.cost_chol;    cost_chol_real[2:2:end] .= results_real_large.cost_chol;   
-cases = ["Random intercepts", "Nested effect", "Random slopes", "2 way interactions", "3 way interactions", "Everything"]
+cases = ["Random intercepts", "Nested effect", "Random slopes", "Nested random slopes", "2 way interactions", "3 way interactions", "Everything"]
 
 using Printf
-round1(x) = @sprintf("%.2e", x)
+round1(x) = @sprintf("%.1e", x)
 round2(x) = @sprintf("%.2f", x)
 
 cost_df = DataFrame(
